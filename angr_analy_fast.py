@@ -4,7 +4,8 @@ Use angr to analyze binary files and export call graphs and control flow graphs 
 Supports multiple detection methods and detailed debugging output
 """
 
-# python angr_analysis.py <binary_file>
+# use this code in terminal to run the script:
+# python angr_analy_fast.py <binary_file>
 
 import angr
 import networkx as nx
@@ -13,7 +14,14 @@ import sys
 import os
 import traceback
 import time
+import logging
 
+# Set to True to disable all logging output
+Disable_logging = True
+
+# disable logging for angr modules
+if Disable_logging:
+    logging.getLogger('angr').propagate = False
 
 def analyze_binary_and_export(binary_path, verbose=False):
     """
@@ -22,13 +30,16 @@ def analyze_binary_and_export(binary_path, verbose=False):
     project, cfg, main_func = load_and_analyze_binary(binary_path, verbose)
     if not all([project, cfg, main_func]):
         return False
-
+    
     # Export function list
     functionlist_ok = export_function_list(cfg, "functionlist.txt", verbose)
+
     # Export call graph
     callgraph_ok = export_call_graph(project, cfg, main_func, "callgraph.dot", binary_path, verbose)
+
     # Export control flow graph
     cfg_ok = export_cfg_graph(cfg, main_func, "cfg.dot", verbose)
+
     return functionlist_ok and callgraph_ok and cfg_ok
 
 
@@ -53,10 +64,19 @@ def load_and_analyze_binary(binary_path, verbose=False):
         print(f"[+] Architecture: {project.arch}")
         print(f"[+] Entry point: 0x{project.entry:x}")
         
+        # Record analysis start time
+        start_time = time.time()
+        print(f"[+] Analysis start time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
+
         # Generate control flow graph
-        print("[+] Generating control flow graph...")
+        print("[+] Analysis using CFGfast...")
         cfg = project.analyses.CFGFast(resolve_indirect_jumps=True)
         
+        # print used time
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"[+] Time used: {total_time:.2f} seconds")
+
         # Find main function
         print("[+] Looking for main function...")
         main_func = None
@@ -324,11 +344,24 @@ def export_function_list(cfg, output_path, verbose=False):
         # Collect all function information
         for addr, func in cfg.functions.items():
             func_name = func.name if func.name else f"sub_{func.addr:x}"
+            
+            # Safely get function size
+            try:
+                func_size = func.size if func.size is not None else 0
+            except (TypeError, AttributeError):
+                func_size = 0
+            
+            # Safely get block count
+            try:
+                block_count = len(func.block_addrs) if hasattr(func, 'block_addrs') and func.block_addrs else 0
+            except (TypeError, AttributeError):
+                block_count = 0
+            
             func_info = {
                 'name': func_name,
                 'address': hex(func.addr),
-                'size': func.size,
-                'blocks': len(func.block_addrs) if hasattr(func, 'block_addrs') else 0
+                'size': func_size,
+                'blocks': block_count
             }
             functions.append(func_info)
         
@@ -351,8 +384,10 @@ def export_function_list(cfg, output_path, verbose=False):
         
     except Exception as e:
         print(f"[-] Error exporting function list: {str(e)}")
-        traceback.print_exc()
+        if verbose:
+            traceback.print_exc()
         return False
+
 
 def main():
     """Main function"""
@@ -364,23 +399,12 @@ def main():
     args = parser.parse_args()
     
     print("=" * 60)
-    print("angr Binary Analysis Tool - Call Graph Export (Final Version)")
+    print("angr Binary Analysis Tool (CFGFast Version)")
     print("=" * 60)
-    
-    # Record analysis start time
-    start_time = time.time()
-    print(f"[+] Analysis start time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
     
     success = analyze_binary_and_export(args.binary, args.verbose)
     
     if success:
-        # Record analysis end time
-        end_time = time.time()
-        print(f"[+] Analysis end time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(end_time))}")
-        
-        # Calculate and display total time
-        total_time = end_time - start_time
-        print(f"[+] Total time: {total_time:.2f} seconds")
         print("\n[+] Analysis completed!")
         sys.exit(0)
     else:
